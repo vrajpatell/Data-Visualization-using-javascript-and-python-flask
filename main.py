@@ -151,7 +151,14 @@ def refresh_cache_if_needed(force: bool = False) -> str:
     return "fallback_cache"
 
 
-def query_quakes(mag_min: float, mag_max: float, lat_min: float, lat_max: float, lon_min: float, lon_max: float):
+def query_quakes(
+    mag_min: float,
+    mag_max: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
+):
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             """
@@ -180,9 +187,6 @@ def query_quakes(mag_min: float, mag_max: float, lat_min: float, lat_max: float,
         for r in rows
     ]
     return payload, source, refreshed
-
-
-
 
 def seed_bootstrap_data_if_empty() -> None:
     with sqlite3.connect(DB_PATH) as conn:
@@ -217,6 +221,7 @@ def seed_bootstrap_data_if_empty() -> None:
         _set_metadata(conn, "last_refresh_epoch", str(now))
         _set_metadata(conn, "last_refresh_source", "bootstrap_cache")
         conn.commit()
+
 
 def parse_float(name: str, default: float) -> float:
     raw = request.values.get(name, default)

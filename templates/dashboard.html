@@ -26,7 +26,7 @@
 <body>
   <div class="container">
     <h1>Live Earthquake Dashboard</h1>
-    <p class="subtitle">Source: USGS all_day feed (cached for reliability on Render)</p>
+    <p class="subtitle">Source: USGS all_day feed (with cache fallback for reliability on Render)</p>
 
     <div class="card controls">
       <div><label for="magMin">Magnitude Min</label><input id="magMin" value="1" type="number" step="0.1"></div>
@@ -128,10 +128,11 @@
       const params = new URLSearchParams({ mag_min: magMin, mag_max: magMax, lat1, lat2, lon1, lon2, refresh: forceRefresh ? '1' : '0' });
       const res = await fetch(`/api/earthquakes?${params.toString()}`);
       const payload = await res.json();
-      drawCharts(payload.data);
+      drawCharts(payload.data || []);
 
       const lastRefresh = payload.meta.last_refresh_epoch ? new Date(payload.meta.last_refresh_epoch * 1000).toLocaleString() : 'n/a';
-      document.getElementById('metaInfo').innerText = `Records: ${payload.meta.count} | Source: ${payload.meta.source} | Last refresh: ${lastRefresh}`;
+      const source = payload.meta.source || 'unknown';
+      document.getElementById('metaInfo').innerText = `Records: ${payload.meta.count || 0} | Source: ${source} | Last refresh: ${lastRefresh}`;
     }
 
     document.getElementById('applyFilters').addEventListener('click', () => loadData(false));

@@ -32,8 +32,8 @@ Response shape:
 ```json
 {
   "meta": {
-    "source": "live|cache|fallback_cache",
-    "refresh_result": "live|cache|fallback_cache",
+    "source": "live|cache|fallback_cache|bootstrap_cache",
+    "refresh_result": "live|cache|fallback_cache|bootstrap_cache",
     "last_refresh_epoch": 0,
     "count": 0,
     "filters": {}
@@ -64,24 +64,28 @@ python3 main.py
 Open: `http://localhost:5000`
 
 
-## Render Blueprint File
-
-This repo now includes a Render Blueprint file at:
-
-- `render.yaml`
-
-You can deploy directly from this blueprint in Render (Infrastructure as Code), or continue using the manual Web Service setup.
-
 ## Deploy to Render
 
-1. Push repo to GitHub.
-2. In Render, create a new **Web Service** from the repo.
+This repository includes both:
+- `Procfile` (classic process command)
+- `render.yaml` (Render Blueprint / IaC)
+
+### Option A: Deploy via `render.yaml` (recommended)
+
+1. Push the repo to GitHub.
+2. In Render, choose **New +** → **Blueprint**.
+3. Select this repository and apply the blueprint.
+
+### Option B: Manual Web Service setup
+
+1. Push the repo to GitHub.
+2. In Render, create a **Web Service** from the repo.
 3. Runtime: Python 3.
 4. Build command:
    ```bash
    pip install -r requirements.txt
    ```
-5. Start command (or rely on Procfile):
+5. Start command:
    ```bash
    gunicorn main:app --bind 0.0.0.0:$PORT
    ```
