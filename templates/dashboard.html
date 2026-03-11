@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Earthquake Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f5f7fb; color: #16213e; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+    h1 { margin: 0; }
+    .subtitle { margin: .4rem 0 1rem; color:#4a5b77; }
+    .card { background: #fff; border-radius: 12px; padding: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,.08); margin-bottom: 1rem; }
+    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+    .controls { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); align-items: end; }
+    label { font-size: .9rem; font-weight: 600; display: block; margin-bottom: .25rem; }
+    input { width: 100%; padding: .5rem; border: 1px solid #c9d3e0; border-radius: 8px; }
+    button { padding: .6rem .8rem; border: 0; border-radius: 8px; cursor: pointer; background: #2050d4; color: #fff; font-weight: 700; }
+    .kpis { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .kpi { background: #ecf2ff; border-radius: 10px; padding: .8rem 1rem; min-width: 170px; }
+    .kpi h3 { margin: 0; font-size: .85rem; color: #37507d; }
+    .kpi p { margin: .25rem 0 0; font-size: 1.3rem; font-weight: bold; }
+    #metaInfo { font-size: .9rem; color: #3f4b63; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Live Earthquake Dashboard</h1>
+    <p class="subtitle">Source: USGS all_day feed (cached for reliability on Render)</p>
+
+    <div class="card controls">
+      <div><label for="magMin">Magnitude Min</label><input id="magMin" value="1" type="number" step="0.1"></div>
+      <div><label for="magMax">Magnitude Max</label><input id="magMax" value="8" type="number" step="0.1"></div>
+      <div><button id="applyFilters">Apply Filters</button></div>
+      <div><button id="refreshLive">Force Live Refresh</button></div>
+    </div>
+
+    <div class="card controls">
+      <div><label for="lat1">Lat 1</label><input id="lat1" value="-90" type="number" step="0.1"></div>
+      <div><label for="lat2">Lat 2</label><input id="lat2" value="90" type="number" step="0.1"></div>
+      <div><label for="lon1">Lon 1</label><input id="lon1" value="-180" type="number" step="0.1"></div>
+      <div><label for="lon2">Lon 2</label><input id="lon2" value="180" type="number" step="0.1"></div>
+      <div id="metaInfo"></div>
+    </div>
+
+    <div class="card kpis">
+      <div class="kpi"><h3>Total Points</h3><p id="totalPoints">0</p></div>
+      <div class="kpi"><h3>Average Magnitude</h3><p id="avgMag">0</p></div>
+      <div class="kpi"><h3>Max Magnitude</h3><p id="maxMag">0</p></div>
+    </div>
+
+    <div class="grid">
+      <div class="card"><canvas id="lineChart"></canvas></div>
+      <div class="card"><canvas id="barChart"></canvas></div>
+      <div class="card"><canvas id="pieChart"></canvas></div>
+      <div class="card"><canvas id="scatterChart"></canvas></div>
+    </div>
+  </div>
+
+  <script>
+    let lineChart, barChart, pieChart, scatterChart;
+
+    function bucketMagnitudes(data) {
+      const buckets = { '0-1.9':0, '2-2.9':0, '3-3.9':0, '4-4.9':0, '5+':0 };
+      data.forEach(d => {
+        const m = d.magnitude;
+        if (m < 2) buckets['0-1.9']++;
+        else if (m < 3) buckets['2-2.9']++;
+        else if (m < 4) buckets['3-3.9']++;
+        else if (m < 5) buckets['4-4.9']++;
+        else buckets['5+']++;
+      });
+      return buckets;
+    }
+
+    function updateKpis(data) {
+      const total = data.length;
+      const avg = total ? (data.reduce((a,b) => a + b.magnitude, 0) / total) : 0;
+      const max = total ? Math.max(...data.map(d => d.magnitude)) : 0;
+      document.getElementById('totalPoints').innerText = total;
+      document.getElementById('avgMag').innerText = avg.toFixed(2);
+      document.getElementById('maxMag').innerText = max.toFixed(2);
+    }
+
+    function drawCharts(data) {
+      const labels = data.map((d, i) => new Date(d.time_ms).toLocaleTimeString() || i + 1).slice(0, 50);
+      const mags = data.map(d => d.magnitude).slice(0, 50);
+      const depths = data.map(d => d.depth).slice(0, 50);
+
+      [lineChart, barChart, pieChart, scatterChart].forEach(c => c && c.destroy());
+
+      lineChart = new Chart(document.getElementById('lineChart'), {
+        type: 'line',
+        data: { labels, datasets: [{ label: 'Magnitude (latest 50)', data: mags, borderColor: '#2050d4', fill: false }] }
+      });
+
+      barChart = new Chart(document.getElementById('barChart'), {
+        type: 'bar',
+        data: { labels, datasets: [{ label: 'Depth (km)', data: depths, backgroundColor: '#51a8ff' }] }
+      });
+
+      const buckets = bucketMagnitudes(data);
+      pieChart = new Chart(document.getElementById('pieChart'), {
+        type: 'pie',
+        data: {
+          labels: Object.keys(buckets),
+          datasets: [{ data: Object.values(buckets), backgroundColor: ['#5e81ac','#88c0d0','#a3be8c','#ebcb8b','#bf616a'] }]
+        }
+      });
+
+      scatterChart = new Chart(document.getElementById('scatterChart'), {
+        type: 'scatter',
+        data: { datasets: [{ label: 'Longitude vs Latitude', data: data.map(d => ({x: d.longitude, y: d.latitude})), backgroundColor: '#6f42c1' }] },
+        options: { scales: { x: { title: { display: true, text: 'Longitude' } }, y: { title: { display: true, text: 'Latitude' } } } }
+      });
+
+      updateKpis(data);
+    }
+
+    async function loadData(forceRefresh = false) {
+      const magMin = document.getElementById('magMin').value;
+      const magMax = document.getElementById('magMax').value;
+      const lat1 = document.getElementById('lat1').value;
+      const lat2 = document.getElementById('lat2').value;
+      const lon1 = document.getElementById('lon1').value;
+      const lon2 = document.getElementById('lon2').value;
+
+      const params = new URLSearchParams({ mag_min: magMin, mag_max: magMax, lat1, lat2, lon1, lon2, refresh: forceRefresh ? '1' : '0' });
+      const res = await fetch(`/api/earthquakes?${params.toString()}`);
+      const payload = await res.json();
+      drawCharts(payload.data);
+
+      const lastRefresh = payload.meta.last_refresh_epoch ? new Date(payload.meta.last_refresh_epoch * 1000).toLocaleString() : 'n/a';
+      document.getElementById('metaInfo').innerText = `Records: ${payload.meta.count} | Source: ${payload.meta.source} | Last refresh: ${lastRefresh}`;
+    }
+
+    document.getElementById('applyFilters').addEventListener('click', () => loadData(false));
+    document.getElementById('refreshLive').addEventListener('click', () => loadData(true));
+    loadData(false);
+  </script>
+</body>
+</html>
