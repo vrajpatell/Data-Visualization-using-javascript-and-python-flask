@@ -1,119 +1,108 @@
-# Data Visualization Dashboard (Flask + JavaScript)
+# Live Earthquake Dashboard (Flask + JavaScript)
 
-A deployable Flask dashboard for exploring earthquake-like geospatial data with interactive charts.
+Deployable Flask dashboard for **live earthquake data** on Render, with resilient caching.
 
-## What this project now includes
+## What changed
 
-- A **single-page dashboard** at `/` and `/dashboard`.
-- Interactive filters by:
-  - **Magnitude range**
-  - **Latitude/Longitude bounding box**
-- Four client-side chart types (Chart.js):
-  - Line chart (magnitude trend)
-  - Bar chart (latitude sample)
-  - Pie chart (magnitude buckets)
-  - Scatter chart (longitude vs latitude)
-- KPI summary cards:
-  - Total points
-  - Average magnitude
-  - Max magnitude
-- A `/health` endpoint for platform health checks.
-- A SQLite fallback dataset (auto-seeded) so the app runs out-of-the-box in local/dev/deploy environments.
-
----
+- Uses the **USGS live GeoJSON feed** (`all_day`) as primary data source.
+- Caches latest feed data in SQLite (`data/earthquakes.db`) for reliability when external API is temporarily unavailable.
+- Exposes a single API endpoint with filters: `GET /api/earthquakes`.
+- Includes force refresh support (`refresh=1`) from the dashboard.
+- Ready for Render with Gunicorn via `Procfile`.
 
 ## Architecture
 
 - **Backend:** Flask (`main.py`)
-- **Frontend:** HTML + vanilla JavaScript + Chart.js CDN (`templates/dashboard.html`)
-- **Data store:** SQLite database file at `data/earthquakes.db` by default
+- **Data Source:** USGS Earthquake Feed
+- **Cache:** SQLite local cache (auto-created)
+- **Frontend:** Chart.js dashboard (`templates/dashboard.html`)
 
-### API Endpoints
+## API
 
-- `GET /api/magnitude?mag_min=2&mag_max=6`
-  - Returns points filtered by magnitude range.
-- `GET /api/bounds?lat1=-30&lat2=30&lon1=-60&lon2=60`
-  - Returns points filtered by lat/lon box.
-- `GET /health`
-  - Returns service health JSON.
+### `GET /api/earthquakes`
 
----
+Query params:
+- `mag_min`, `mag_max`
+- `lat1`, `lat2`
+- `lon1`, `lon2`
+- `refresh=1` (optional force live refresh)
 
-## Local Development
+Response shape:
 
-### 1) Create and activate a virtual environment
-
-```bash
-python -m venv .venv
-source .venv/bin/activate   # macOS/Linux
-# .venv\Scripts\activate   # Windows PowerShell
+```json
+{
+  "meta": {
+    "source": "live|cache|fallback_cache|bootstrap_cache",
+    "refresh_result": "live|cache|fallback_cache|bootstrap_cache",
+    "last_refresh_epoch": 0,
+    "count": 0,
+    "filters": {}
+  },
+  "data": [
+    {
+      "id": "...",
+      "time_ms": 0,
+      "place": "...",
+      "magnitude": 0,
+      "latitude": 0,
+      "longitude": 0,
+      "depth": 0
+    }
+  ]
+}
 ```
 
-### 2) Install dependencies
+## Local run
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+python3 main.py
 ```
 
-### 3) Run the app
+Open: `http://localhost:5000`
 
-```bash
-python main.py
+
+## Deploy to Render
+
+This repository includes both:
+- `Procfile` (classic process command)
+- `render.yaml` (Render Blueprint / IaC)
+
+### Option A: Deploy via `render.yaml` (recommended)
+
+1. Push the repo to GitHub.
+2. In Render, choose **New +** → **Blueprint**.
+3. Select this repository and apply the blueprint.
+
+### Option B: Manual Web Service setup
+
+1. Push the repo to GitHub.
+2. In Render, create a **Web Service** from the repo.
+3. Runtime: Python 3.
+4. Build command:
+   ```bash
+   pip install -r requirements.txt
+   ```
+5. Start command:
+   ```bash
+   gunicorn main:app --bind 0.0.0.0:$PORT
+   ```
+6. Optional environment variables:
+   - `CACHE_TTL_SECONDS=300`
+   - `USGS_FEED_URL=https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson`
+
+## Health check
+
+`GET /health` returns:
+
+```json
+{"status":"ok"}
 ```
-
-App starts at: `http://localhost:5000`
-
----
-
-## Deployment (Render-ready)
-
-This repository includes a `Procfile` for deployment process declaration.
-
-### Recommended process command
-
-Use Gunicorn in production:
-
-```bash
-gunicorn main:app --bind 0.0.0.0:$PORT
-```
-
-If your platform reads `Procfile`, this is already configured.
-
-### Environment variables
-
-- `PORT` (set by hosting provider)
-- `SQLITE_DB_PATH` (optional; defaults to `data/earthquakes.db`)
-
----
-
-## Project Structure
-
-```text
-.
-├── main.py
-├── requirements.txt
-├── Procfile
-├── data/
-│   └── earthquakes.db         # auto-generated at runtime
-└── templates/
-    └── dashboard.html
-```
-
----
 
 ## Notes
 
-- The app auto-creates and seeds SQLite data if no rows exist.
-- This makes first deploy deterministic and avoids hard-coded external DB credentials.
-- Existing legacy visualization templates remain in the repo but are not used by default routes.
-
----
-
-## Quick Verification
-
-```bash
-curl http://localhost:5000/health
-curl "http://localhost:5000/api/magnitude?mag_min=3&mag_max=5"
-curl "http://localhost:5000/api/bounds?lat1=-10&lat2=10&lon1=-20&lon2=20"
-```
-
+- On startup, the app creates cache tables and attempts refresh.
+- If USGS is unreachable, app serves last cached records.
+- This behavior is ideal for Render free/limited instances where transient network failures can occur.
