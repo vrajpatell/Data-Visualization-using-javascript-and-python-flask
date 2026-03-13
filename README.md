@@ -1,21 +1,34 @@
 # Live Earthquake Dashboard (Flask + JavaScript)
 
-Deployable Flask dashboard for **live earthquake data** on Render, with resilient caching.
+Deployable Flask app for **live earthquake visualization** on Render, with resilient caching and two UI views:
+- Chart dashboard (`/dashboard`)
+- Interactive 3D globe (`/globe`) powered by `globe.gl`
 
-## What changed
+## Features
 
 - Uses the **USGS live GeoJSON feed** (`all_day`) as primary data source.
-- Caches latest feed data in SQLite (`data/earthquakes.db`) for reliability when external API is temporarily unavailable.
-- Exposes a single API endpoint with filters: `GET /api/earthquakes`.
-- Includes force refresh support (`refresh=1`) from the dashboard.
-- Ready for Render with Gunicorn via `Procfile`.
+- Caches latest feed data in SQLite (`data/earthquakes.db`) for reliability when the external API is temporarily unavailable.
+- Exposes `GET /api/earthquakes` with magnitude/geo filters and optional force refresh.
+- Includes:
+  - chart-based dashboard for quick analytics
+  - 3D globe visualization with tooltip details, magnitude sizing/coloring, and auto-refresh controls
+- Ready for Render deployment with Gunicorn via `Procfile`.
 
 ## Architecture
 
 - **Backend:** Flask (`main.py`)
 - **Data Source:** USGS Earthquake Feed
 - **Cache:** SQLite local cache (auto-created)
-- **Frontend:** Chart.js dashboard (`templates/dashboard.html`)
+- **Frontend:**
+  - `templates/dashboard.html` (Chart.js dashboard)
+  - `templates/globe.html` + `static/js/globe.js` + `static/css/globe.css` (`globe.gl` view)
+
+## Routes
+
+- `/` and `/dashboard`: existing dashboard view
+- `/globe`: new 3D globe visualization page
+- `/api/earthquakes`: JSON data endpoint used by both views
+- `/health`: health check endpoint
 
 ## API
 
@@ -61,8 +74,36 @@ pip install -r requirements.txt
 python3 main.py
 ```
 
-Open: `http://localhost:5000`
+Open:
+- Dashboard: `http://localhost:5000/dashboard`
+- 3D globe: `http://localhost:5000/globe`
 
+## Globe view behavior
+
+The globe view calls `/api/earthquakes` directly and maps data as follows:
+- `lat` ← `latitude`
+- `lng` ← `longitude`
+- point radius/altitude scale with `magnitude`
+- point color reflects magnitude severity bands
+- tooltip includes place, magnitude, depth, and time
+
+UI controls include:
+- minimum magnitude filter
+- recent time window filter (last 24h/12h/6h/3h or all cached points)
+- color mode toggle (magnitude or depth)
+- maximum rendered points cap
+- point height scaling slider
+- auto-refresh toggle (2-minute interval)
+- auto-rotate toggle
+- manual refresh button
+- magnitude color legend
+- status, count, source, and last updated timestamp
+
+Interaction:
+- hover a point for details
+- click a point to focus the camera on that earthquake
+
+If data is empty or unavailable, the page shows friendly status messaging instead of crashing.
 
 ## Deploy to Render
 
@@ -104,5 +145,5 @@ This repository includes both:
 ## Notes
 
 - On startup, the app creates cache tables and attempts refresh.
-- If USGS is unreachable, app serves last cached records.
-- This behavior is ideal for Render free/limited instances where transient network failures can occur.
+- If USGS is unreachable, the app serves last cached records.
+- This behavior is suitable for Render free/limited instances with occasional transient network failures.
