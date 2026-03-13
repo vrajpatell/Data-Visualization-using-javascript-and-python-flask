@@ -237,6 +237,11 @@ def dashboard():
     return render_template("dashboard.html")
 
 
+@app.route("/globe")
+def globe():
+    return render_template("globe.html")
+
+
 @app.route("/api/earthquakes")
 def api_earthquakes():
     mag_min = parse_float("mag_min", 0.0)
