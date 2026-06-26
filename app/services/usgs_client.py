@@ -16,7 +16,7 @@ def parse_geojson_features(payload: dict[str, Any]) -> list[dict[str, Any]]:
         if lon is None or lat is None or mag is None or not (-180<=lon<=180) or not (-90<=lat<=90): continue
         place=str(props.get('place') or 'Unknown')
         row={
-            'id': str(f.get('id')), 'time_ms': int(props.get('time') or 0), 'updated_ms': int(props.get('updated') or 0),
+            'id': str(f.get('id')), 'source':'usgs', 'time_ms': int(props.get('time') or 0), 'updated_ms': int(props.get('updated') or 0),
             'place': place, 'magnitude': float(mag), 'longitude': float(lon), 'latitude': float(lat), 'depth': float(depth or 0),
             'alert': props.get('alert'), 'tsunami': int(props.get('tsunami') or 0), 'significance': props.get('sig'), 'felt': props.get('felt'),
             'cdi': props.get('cdi'), 'mmi': props.get('mmi'), 'status': props.get('status'), 'event_type': props.get('type'),

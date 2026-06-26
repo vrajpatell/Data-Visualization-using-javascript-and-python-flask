@@ -3,6 +3,8 @@
   const globeContainer = document.getElementById('globeViz');
   const statusBanner = document.getElementById('statusBanner');
   const stats = document.getElementById('stats');
+  const sourceInput = document.getElementById('source');
+  const feedInput = document.getElementById('feed');
   const magMinInput = document.getElementById('magMin');
   const autoRefreshInput = document.getElementById('autoRefresh');
   const autoRotateInput = document.getElementById('autoRotate');
@@ -53,8 +55,9 @@
 
   function toPoint(quake, colorMode, heightScale) {
     const magnitude = Number.isFinite(quake.magnitude) ? quake.magnitude : 0;
-    const lat = Number.isFinite(quake.latitude) ? quake.latitude : 0;
-    const lng = Number.isFinite(quake.longitude) ? quake.longitude : 0;
+    const lat = Number(quake.latitude);
+    const lng = Number(quake.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
     const depth = Number.isFinite(quake.depth) ? quake.depth : 0;
     const place = quake.place || 'Unknown location';
     const timeMs = Number.isFinite(quake.time_ms) ? quake.time_ms : 0;
@@ -69,8 +72,8 @@
       timeMs,
       radius: 0.05 + Math.max(magnitude, 0) * 0.045,
       altitude: (0.01 + Math.max(magnitude, 0) * 0.025) * heightScale,
-      color: colorMode === 'depth' ? depthColor(depth) : magnitudeColor(magnitude),
-      label: `<div><strong>${place}</strong><br/>Magnitude: ${magnitude.toFixed(1)}<br/>Depth: ${depth.toFixed(1)} km<br/>Time: ${time}</div>`
+      color: quake.is_bootstrap ? '#8b5cf6' : (colorMode === 'depth' ? depthColor(depth) : magnitudeColor(magnitude)),
+      label: `<div><strong>${place}</strong><br/>Magnitude: ${magnitude.toFixed(1)}<br/>Depth: ${depth.toFixed(1)} km<br/>Time: ${time}<br/>Source: ${quake.is_bootstrap?'Bootstrap Demo':(quake.source||'unknown')}<br/>Feed: ${quake.source_feed||'n/a'}</div>`
     };
   }
 
@@ -87,6 +90,8 @@
     const heightScale = parseFloat(heightScaleInput.value) || 1;
 
     const params = new URLSearchParams({
+      source: sourceInput.value,
+      feed: feedInput.value,
       mag_min: Number.isFinite(magMin) ? String(magMin) : '0',
       mag_max: '10',
       refresh: forceRefresh ? '1' : '0'
@@ -104,21 +109,24 @@
       const rows = Array.isArray(payload.data) ? payload.data : [];
       const filteredRows = rows.filter((row) => isRecent(row.time_ms, recentHours));
       const cappedRows = Number.isFinite(maxPoints) ? filteredRows.slice(0, maxPoints) : filteredRows;
-      const points = cappedRows.map((row) => toPoint(row, colorMode, heightScale));
+      const mapped = cappedRows.map((row) => toPoint(row, colorMode, heightScale));
+      const points = mapped.filter(Boolean);
+      const skipped = mapped.length - points.length;
 
       world.pointsData(points);
 
       if (points.length === 0) {
         updateStatus('No earthquakes match your current filters.');
       } else {
-        updateStatus('Data loaded. Hover points for details; click a point to focus.');
+        const warnings = payload.meta?.warnings || [];
+        updateStatus((warnings.length ? warnings.join(' ') : 'Data loaded. Hover points for details; click a point to focus.') + (skipped ? ` Skipped ${skipped} invalid coordinate records.` : ''));
       }
 
       const lastRefresh = payload.meta?.last_refresh_epoch
         ? new Date(payload.meta.last_refresh_epoch * 1000).toLocaleString()
         : 'n/a';
-      const source = payload.meta?.source || 'unknown';
-      stats.textContent = `Displayed: ${points.length}/${rows.length} | Source: ${source} | Last updated: ${lastRefresh}`;
+      const source = payload.meta?.source || 'unknown'; const feed = payload.meta?.feed || 'n/a'; const status = payload.meta?.refresh_result || 'cache';
+      stats.textContent = `Displayed: ${points.length}/${rows.length} | Source: ${source} | Feed: ${feed} | Status: ${status} | Last updated: ${lastRefresh}`;
     } catch (err) {
       world.pointsData([]);
       stats.textContent = 'Displayed: 0';
@@ -151,7 +159,7 @@
   }
 
   refreshButton.addEventListener('click', () => fetchEarthquakes(true));
-  [magMinInput, recentHoursInput, colorModeInput, maxPointsInput, heightScaleInput]
+  [sourceInput, feedInput, magMinInput, recentHoursInput, colorModeInput, maxPointsInput, heightScaleInput]
     .forEach((el) => el.addEventListener('change', () => fetchEarthquakes(false)));
   autoRefreshInput.addEventListener('change', () => setAutoRefresh(autoRefreshInput.checked));
   autoRotateInput.addEventListener('change', () => setAutoRotate(autoRotateInput.checked));
