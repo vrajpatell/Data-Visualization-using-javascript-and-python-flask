@@ -136,3 +136,42 @@ def test_earthquakes_api_refreshes_each_feed_independently(tmp_path, monkeypatch
         assert first.json['meta']['source'] == feed
 
     assert len(calls) == len(feeds)
+
+def test_normalizers_and_source_adapters_reject_bad_coordinates():
+    from app.services.sources.normalizer import validate_latitude, validate_longitude, validate_event_coordinates
+    from app.services.sources.usgs_geojson import USGSGeoJSONSource
+    from app.services.sources.bmkg import BMKGSource
+    from app.services.sources.geonet import GeoNetSource
+    import math
+    assert not validate_latitude(math.nan)
+    assert not validate_longitude(math.inf)
+    assert not validate_event_coordinates({'latitude': 130, 'longitude': 45})
+    usgs=USGSGeoJSONSource().normalize(SAMPLE['features'][0], 'day')
+    assert usgs['latitude'] == 37.2 and usgs['longitude'] == -122.1 and usgs['id'].startswith('usgs:')
+    assert USGSGeoJSONSource().normalize({'id':'bad','properties':{'mag':1},'geometry':{'coordinates':[130,95,1]}}, 'day') is None
+    bmkg=BMKGSource().normalize({'Coordinates':'-6.12,130.42','Magnitude':'4.8','Kedalaman':'42 km','Wilayah':'Indonesia'}, 'latest')
+    assert bmkg['latitude'] == -6.12 and bmkg['longitude'] == 130.42
+    geonet=GeoNetSource().normalize({'id':'nz1','properties':{'magnitude':3,'locality':'NZ','time':1700000000000},'geometry':{'coordinates':[174.7,-41.2,12]}}, 'latest')
+    assert geonet['latitude'] == -41.2 and geonet['longitude'] == 174.7
+
+def test_source_feed_demo_and_antimeridian_filters(tmp_path):
+    from app.services.cache import init_db, upsert_earthquakes, query_earthquakes
+    db=str(tmp_path/'filters.db'); init_db(db)
+    upsert_earthquakes(db,[{'id':'usgs:day','source':'usgs','time_ms':1,'updated_ms':1,'place':'A','magnitude':2,'longitude':175,'latitude':10,'depth':1}], 'day')
+    upsert_earthquakes(db,[{'id':'usgs:month','source':'usgs','time_ms':2,'updated_ms':2,'place':'B','magnitude':3,'longitude':-175,'latitude':-10,'depth':1}], '30day')
+    upsert_earthquakes(db,[{'id':'emsc:x','source':'emsc','time_ms':3,'updated_ms':3,'place':'C','magnitude':4,'longitude':0,'latitude':0,'depth':1}], 'day')
+    upsert_earthquakes(db,[{'id':'bootstrap-x','source':'bootstrap_demo','time_ms':4,'updated_ms':4,'place':'Demo','magnitude':5,'longitude':50,'latitude':5,'depth':1}], 'bootstrap_demo', True)
+    assert [r['id'] for r in query_earthquakes(db, {'source':'usgs','source_feed':'day','include_demo':False}, 10)] == ['usgs:day']
+    assert [r['id'] for r in query_earthquakes(db, {'source':'usgs','source_feed':'30day','include_demo':False}, 10)] == ['usgs:month']
+    assert all(not r['is_bootstrap'] for r in query_earthquakes(db, {'source':'all','include_demo':False}, 10))
+    assert any(r['is_bootstrap'] for r in query_earthquakes(db, {'source':'all','include_demo':True}, 10))
+    ids={r['id'] for r in query_earthquakes(db, {'lon1':170,'lon2':-170,'include_demo':False}, 10)}
+    assert {'usgs:day','usgs:month'} <= ids and 'emsc:x' not in ids
+    assert [r['id'] for r in query_earthquakes(db, {'lon1':-10,'lon2':10,'include_demo':False}, 10)] == ['emsc:x']
+
+def test_sources_and_filtered_api(client):
+    assert client.get('/api/sources').status_code == 200
+    assert client.get('/api/regions?source=usgs&feed=day').status_code == 200
+    assert client.get('/api/timeseries?source=usgs&feed=day').status_code == 200
+    r=client.get('/api/earthquakes?source=usgs&feed=day&include_demo=false')
+    assert r.status_code == 200 and r.json['meta']['demo_count'] == 0

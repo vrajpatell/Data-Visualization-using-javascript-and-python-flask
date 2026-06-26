@@ -19,7 +19,7 @@
     </header>
 
     <section class="controls-card">
-      <div class="control">
+      <div class="control"><label for="source">Source</label><select id="source"><option value="all">All enabled sources</option><option value="usgs">USGS GeoJSON</option><option value="usgs_fdsn">USGS FDSN</option><option value="emsc">EMSC</option><option value="isc">ISC</option><option value="geofon">GFZ/GEOFON</option><option value="bmkg">BMKG</option><option value="geonet">GeoNet</option><option value="auspass">AusPass</option></select></div><div class="control"><label for="feed">Feed</label><select id="feed"><option value="day">day</option><option value="hour">hour</option><option value="7day">7day</option><option value="30day">30day</option><option value="latest">latest</option><option value="felt">felt</option><option value="m5">m5</option><option value="tsunami">tsunami</option><option value="significant">significant</option><option value="m1">m1</option><option value="m2.5">m2.5</option><option value="m4.5">m4.5</option></select></div><div class="control">
         <label for="magMin">Minimum Magnitude</label>
         <input id="magMin" type="number" min="0" max="10" value="1" step="0.1">
       </div>
@@ -72,7 +72,7 @@
         <span class="legend-item"><i style="background:#ef4444"></i>6+</span>
       </div>
 
-      <div class="stats" id="stats">Loading...</div>
+      <div class="stats" id="stats">Loading...</div><div class="legend"><span class="legend-item"><i style="background:#8b5cf6"></i>Demo/bootstrap</span><span class="legend-item">Popup includes source/feed/status</span></div>
     </section>
 
     <section class="globe-panel">
