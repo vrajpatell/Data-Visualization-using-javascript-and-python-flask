@@ -1,149 +1,99 @@
-# Live Earthquake Dashboard (Flask + JavaScript)
+# QuakeRisk: Earthquake Monitoring & Probabilistic Forecasting Dashboard
 
-Deployable Flask app for **live earthquake visualization** on Render, with resilient caching and two UI views:
-- Chart dashboard (`/dashboard`)
-- Interactive 3D globe (`/globe`) powered by `globe.gl`
+A production-ready Flask application for monitoring USGS GeoJSON earthquake feeds, caching records in SQLite, visualizing activity with Chart.js/Leaflet/globe.gl, and providing **experimental probabilistic earthquake forecasting**.
 
-## Features
+> Scientific disclaimer: earthquakes cannot be predicted deterministically with reliable exact time, location, and magnitude. This app only provides regional risk scoring, magnitude likelihood estimation, aftershock/seismic activity trend analysis, and educational uncertainty warnings.
 
-- Uses the **USGS live GeoJSON feed** (`all_day`) as primary data source.
-- Caches latest feed data in SQLite (`data/earthquakes.db`) for reliability when the external API is temporarily unavailable.
-- Exposes `GET /api/earthquakes` with magnitude/geo filters and optional force refresh.
-- Includes:
-  - chart-based dashboard for quick analytics
-  - 3D globe visualization with tooltip details, magnitude sizing/coloring, and auto-refresh controls
-- Ready for Render deployment with Gunicorn via `Procfile`.
+## Screenshots
+
+Add screenshots after deployment for the dashboard, 2D map, 3D globe, and forecast page.
 
 ## Architecture
 
-- **Backend:** Flask (`main.py`)
-- **Data Source:** USGS Earthquake Feed
-- **Cache:** SQLite local cache (auto-created)
-- **Frontend:**
-  - `templates/dashboard.html` (Chart.js dashboard)
-  - `templates/globe.html` + `static/js/globe.js` + `static/css/globe.css` (`globe.gl` view)
+- `main.py` keeps `gunicorn main:app` compatibility.
+- `app/__init__.py` creates the Flask app.
+- `app/routes.py` exposes HTML pages and JSON APIs.
+- `app/services/usgs_client.py` fetches/parses USGS GeoJSON.
+- `app/services/cache.py` manages SQLite tables, indexes, upserts, and refresh metadata.
+- `app/services/analytics.py` powers dashboard summary aggregations.
+- `app/services/model.py` implements a heuristic baseline plus optional scikit-learn classifier.
+- `templates/` and `static/` contain responsive frontend pages.
+- `tests/` contains pytest coverage for parsing, cache, APIs, and forecast fallback.
 
 ## Routes
 
-- `/` and `/dashboard`: existing dashboard view
-- `/globe`: new 3D globe visualization page
-- `/api/earthquakes`: JSON data endpoint used by both views
-- `/health`: health check endpoint
+HTML: `/dashboard`, `/map`, `/globe`, `/forecast`, `/about`.
 
-## API
+APIs: `/api/earthquakes`, `/api/summary`, `/api/regions`, `/api/timeseries`, `/api/forecast`, `/api/model/status`, `POST /api/model/train`, `/health`, `/api/health/deep`.
 
-### `GET /api/earthquakes`
-
-Query params:
-- `mag_min`, `mag_max`
-- `lat1`, `lat2`
-- `lon1`, `lon2`
-- `refresh=1` (optional force live refresh)
-
-Response shape:
-
-```json
-{
-  "meta": {
-    "source": "live|cache|fallback_cache|bootstrap_cache",
-    "refresh_result": "live|cache|fallback_cache|bootstrap_cache",
-    "last_refresh_epoch": 0,
-    "count": 0,
-    "filters": {}
-  },
-  "data": [
-    {
-      "id": "...",
-      "time_ms": 0,
-      "place": "...",
-      "magnitude": 0,
-      "latitude": 0,
-      "longitude": 0,
-      "depth": 0
-    }
-  ]
-}
-```
-
-## Local run
+## API examples
 
 ```bash
-python3 -m venv .venv
+curl 'http://localhost:5000/api/earthquakes?feed=day&mag_min=2.5&limit=100'
+curl 'http://localhost:5000/api/summary?feed=7day'
+curl 'http://localhost:5000/api/forecast?lat=37.7749&lon=-122.4194&radius_km=300&hours=72&min_magnitude=2.5'
+```
+
+## ML forecast explanation
+
+The forecast endpoint returns a 0-100 risk score, bucket, expected activity count, model confidence, top contributing features, nearby events, and a warning. It always works through a baseline heuristic; if enough cached data exists, `POST /api/model/train` can train a scikit-learn classifier saved with joblib.
+
+Training is time-aware and reports accuracy, precision, recall, F1, confusion matrix, and ROC AUC when valid. It avoids deterministic claims and should not be used for emergency decisions.
+
+## Local setup
+
+```bash
+python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python3 main.py
+python main.py
 ```
 
-Open:
-- Dashboard: `http://localhost:5000/dashboard`
-- 3D globe: `http://localhost:5000/globe`
+Open <http://localhost:5000/dashboard>.
 
-## Globe view behavior
+## Render deployment
 
-The globe view calls `/api/earthquakes` directly and maps data as follows:
-- `lat` ← `latitude`
-- `lng` ← `longitude`
-- point radius/altitude scale with `magnitude`
-- point color reflects magnitude severity bands
-- tooltip includes place, magnitude, depth, and time
+The included `Procfile` and `render.yaml` use:
 
-UI controls include:
-- minimum magnitude filter
-- recent time window filter (last 24h/12h/6h/3h or all cached points)
-- color mode toggle (magnitude or depth)
-- maximum rendered points cap
-- point height scaling slider
-- auto-refresh toggle (2-minute interval)
-- auto-rotate toggle
-- manual refresh button
-- magnitude color legend
-- status, count, source, and last updated timestamp
-
-Interaction:
-- hover a point for details
-- click a point to focus the camera on that earthquake
-
-If data is empty or unavailable, the page shows friendly status messaging instead of crashing.
-
-## Deploy to Render
-
-This repository includes both:
-- `Procfile` (classic process command)
-- `render.yaml` (Render Blueprint / IaC)
-
-### Option A: Deploy via `render.yaml` (recommended)
-
-1. Push the repo to GitHub.
-2. In Render, choose **New +** → **Blueprint**.
-3. Select this repository and apply the blueprint.
-
-### Option B: Manual Web Service setup
-
-1. Push the repo to GitHub.
-2. In Render, create a **Web Service** from the repo.
-3. Runtime: Python 3.
-4. Build command:
-   ```bash
-   pip install -r requirements.txt
-   ```
-5. Start command:
-   ```bash
-   gunicorn main:app --bind 0.0.0.0:$PORT
-   ```
-6. Optional environment variables:
-   - `CACHE_TTL_SECONDS=300`
-   - `USGS_FEED_URL=https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson`
-
-## Health check
-
-`GET /health` returns:
-
-```json
-{"status":"ok"}
+```bash
+gunicorn main:app --bind 0.0.0.0:$PORT
 ```
 
-## Notes
+Health check path: `/health`.
 
-- On startup, the app creates cache tables and attempts refresh.
-- If USGS is unreachable, the app serves last cached records.
-- This behavior is suitable for Render free/limited instances with occasional transient network failures.
+SQLite works out of the box for Render free-tier compatibility, but local disk can be ephemeral. For durable history, attach a Render persistent disk and set `SQLITE_DB_PATH` to that mount, or migrate the cache layer to Postgres later.
+
+## Environment variables
+
+See `.env.example` for all supported settings: `USGS_FEED_URL`, `CACHE_TTL_SECONDS`, `SQLITE_DB_PATH`, `DEFAULT_FEED_WINDOW`, `MODEL_PATH`, `ENABLE_BOOTSTRAP_DATA`, `ENABLE_MODEL_TRAINING_ON_STARTUP`, `MAX_API_LIMIT`, and `ADMIN_TOKEN`.
+
+## Model training
+
+Set `ADMIN_TOKEN`, then call:
+
+```bash
+curl -X POST -H "X-Admin-Token: $ADMIN_TOKEN" http://localhost:5000/api/model/train
+```
+
+If no token is configured, the training endpoint is disabled.
+
+## Tests
+
+```bash
+pytest
+python -m compileall .
+```
+
+## Troubleshooting
+
+- If USGS is unavailable, APIs fall back to cached or clearly labeled bootstrap/demo data.
+- If CDN assets fail, the 2D map and dashboard still provide monitoring views.
+- If model training reports insufficient data, continue using the heuristic forecast until more cache history exists.
+
+## Future improvements
+
+- Persistent Postgres backend.
+- Region-specific model calibration.
+- Background scheduled ingestion.
+- Authentication for admin operations.
+- Screenshot automation for README assets.

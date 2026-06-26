@@ -5,11 +5,18 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn main:app --bind 0.0.0.0:$PORT
+    healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.9
+        value: 3.11.15
       - key: CACHE_TTL_SECONDS
         value: 300
-      - key: USGS_FEED_URL
-        value: https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson
+      - key: DEFAULT_FEED_WINDOW
+        value: day
+      - key: ENABLE_BOOTSTRAP_DATA
+        value: true
+      - key: ENABLE_MODEL_TRAINING_ON_STARTUP
+        value: false
+      - key: MAX_API_LIMIT
+        value: 2000

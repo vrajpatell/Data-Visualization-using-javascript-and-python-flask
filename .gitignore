@@ -1,4 +1,10 @@
 __pycache__/
-*.pyc
-data/
+*.py[cod]
+.pytest_cache/
+.env
 .venv/
+venv/
+data/*.db*
+models/*.joblib
+models/*.json
+.DS_Store

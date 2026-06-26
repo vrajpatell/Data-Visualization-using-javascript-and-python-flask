@@ -1,4 +1,5 @@
 (() => {
+  if (typeof Globe === 'undefined') { const b=document.getElementById('statusBanner'); if(b) b.textContent='3D globe library failed to load. Please check the CDN connection or use the 2D map.'; return; }
   const globeContainer = document.getElementById('globeViz');
   const statusBanner = document.getElementById('statusBanner');
   const stats = document.getElementById('stats');
