@@ -26,6 +26,9 @@ def init_db(db_path: str) -> None:
             c.execute(f'CREATE INDEX IF NOT EXISTS {idx} ON earthquakes({col})')
         c.commit()
 
+def feed_meta_key(k: str, feed: str) -> str:
+    return f'{k}:{feed}'
+
 def set_meta(c, k, v): c.execute('INSERT INTO refresh_metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(k,str(v)))
 def get_meta(db_path: str, k: str, default: str='') -> str:
     with connect(db_path) as c:
@@ -35,7 +38,6 @@ def all_meta(db_path: str) -> dict[str,str]:
     with connect(db_path) as c: return {r['key']:r['value'] for r in c.execute('SELECT key,value FROM refresh_metadata')}
 
 def upsert_earthquakes(db_path: str, rows: list[dict[str,Any]], source_feed='unknown', is_bootstrap=False) -> int:
-    if not rows: return 0
     now=int(time.time())
     vals=[]
     for r in rows:
@@ -45,7 +47,9 @@ def upsert_earthquakes(db_path: str, rows: list[dict[str,Any]], source_feed='unk
     updates=','.join([f'{c}=excluded.{c}' for c in COLUMNS[1:]]+['ingested_at=excluded.ingested_at','source_feed=excluded.source_feed','is_bootstrap=excluded.is_bootstrap'])
     with connect(db_path) as c:
         c.executemany(f'INSERT INTO earthquakes({",".join(COLUMNS)},ingested_at,source_feed,is_bootstrap) VALUES({ph}) ON CONFLICT(id) DO UPDATE SET {updates}', vals)
-        set_meta(c,'last_successful_refresh_epoch',now); set_meta(c,'last_refresh_source',source_feed); set_meta(c,'last_record_count',len(rows)); c.commit()
+        set_meta(c,'last_successful_refresh_epoch',now); set_meta(c,'last_refresh_source',source_feed); set_meta(c,'last_record_count',len(rows))
+        set_meta(c,feed_meta_key('last_successful_refresh_epoch',source_feed),now); set_meta(c,feed_meta_key('last_refresh_source',source_feed),source_feed); set_meta(c,feed_meta_key('last_record_count',source_feed),len(rows)); set_meta(c,feed_meta_key('last_refresh_error',source_feed),'')
+        c.commit()
     return len(rows)
 
 def seed_bootstrap_if_empty(db_path: str, enabled=True) -> None:

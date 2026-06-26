@@ -11,7 +11,7 @@ def client(tmp_path, monkeypatch):
     app=create_app(); app.config['TESTING']=True
     from app.services.cache import upsert_earthquakes
     from app.services.usgs_client import parse_geojson_features
-    upsert_earthquakes(app.config['SQLITE_DB_PATH'], parse_geojson_features(SAMPLE), 'test')
+    upsert_earthquakes(app.config['SQLITE_DB_PATH'], parse_geojson_features(SAMPLE), 'day')
     return app.test_client()
 
 def test_geojson_parsing():
@@ -53,3 +53,86 @@ def test_forecast_fallback(client):
 def test_model_status(client):
     r=client.get('/api/model/status')
     assert r.status_code==200 and 'model_exists' in r.json
+
+
+def test_refresh_metadata_is_per_feed(tmp_path, monkeypatch):
+    monkeypatch.setenv('SQLITE_DB_PATH', str(tmp_path/'feeds.db'))
+    monkeypatch.setenv('ENABLE_BOOTSTRAP_DATA','false')
+    from app import create_app
+    from app import routes
+    from app.services.cache import all_meta
+
+    app=create_app(); app.config['TESTING']=True; app.config['CACHE_TTL_SECONDS']=3600
+    calls=[]
+    def fake_fetch(url, timeout):
+        calls.append(url)
+        idx=len(calls)
+        return [{'id':f'event-{idx}','time_ms':idx,'updated_ms':idx,'place':'Test','magnitude':1.0,'longitude':1,'latitude':1,'depth':1}]
+    monkeypatch.setattr(routes, 'fetch_feed', fake_fetch)
+
+    feeds=['day','7day','30day','significant','m1','m2.5','m4.5']
+    with app.app_context():
+        for feed in feeds:
+            assert routes.refresh_if_needed(feed) == 'live:1'
+            assert routes.refresh_if_needed(feed) == 'cache'
+
+    assert len(calls) == len(feeds)
+    meta=all_meta(app.config['SQLITE_DB_PATH'])
+    for feed in feeds:
+        assert int(meta[f'last_successful_refresh_epoch:{feed}']) > 0
+        assert meta[f'last_refresh_source:{feed}'] == feed
+
+
+def test_legacy_global_metadata_only_applies_to_matching_feed(tmp_path, monkeypatch):
+    monkeypatch.setenv('SQLITE_DB_PATH', str(tmp_path/'legacy.db'))
+    monkeypatch.setenv('ENABLE_BOOTSTRAP_DATA','false')
+    from app import create_app
+    from app import routes
+    from app.services.cache import connect, set_meta
+    import time
+
+    app=create_app(); app.config['TESTING']=True; app.config['CACHE_TTL_SECONDS']=3600
+    with connect(app.config['SQLITE_DB_PATH']) as c:
+        set_meta(c, 'last_successful_refresh_epoch', int(time.time()))
+        set_meta(c, 'last_refresh_source', 'day')
+        c.commit()
+
+    calls=[]
+    def fake_fetch(url, timeout):
+        calls.append(url)
+        return [{'id':'legacy-7day','time_ms':1,'updated_ms':1,'place':'Test','magnitude':1.0,'longitude':1,'latitude':1,'depth':1}]
+    monkeypatch.setattr(routes, 'fetch_feed', fake_fetch)
+
+    with app.app_context():
+        assert routes.refresh_if_needed('day') == 'cache'
+        assert routes.refresh_if_needed('7day') == 'live:1'
+
+    assert len(calls) == 1
+
+
+def test_earthquakes_api_refreshes_each_feed_independently(tmp_path, monkeypatch):
+    monkeypatch.setenv('SQLITE_DB_PATH', str(tmp_path/'api-feeds.db'))
+    monkeypatch.setenv('ENABLE_BOOTSTRAP_DATA','false')
+    from app import create_app
+    from app import routes
+
+    app=create_app(); app.config['TESTING']=True; app.config['CACHE_TTL_SECONDS']=3600
+    calls=[]
+    def fake_fetch(url, timeout):
+        calls.append(url)
+        idx=len(calls)
+        return [{'id':f'api-event-{idx}','time_ms':idx,'updated_ms':idx,'place':'Test','magnitude':1.0,'longitude':1,'latitude':1,'depth':1}]
+    monkeypatch.setattr(routes, 'fetch_feed', fake_fetch)
+
+    client=app.test_client()
+    feeds=['day','7day','30day','significant','m1','m2.5','m4.5']
+    for feed in feeds:
+        first=client.get(f'/api/earthquakes?feed={feed}&limit=1')
+        second=client.get(f'/api/earthquakes?feed={feed}&limit=1')
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json['meta']['refresh_result'] == 'live:1'
+        assert second.json['meta']['refresh_result'] == 'cache'
+        assert first.json['meta']['source'] == feed
+
+    assert len(calls) == len(feeds)
