@@ -2,22 +2,31 @@ from __future__ import annotations
 import time
 from flask import Blueprint, current_app, jsonify, render_template, request
 from app.services import analytics, model
-from app.services.cache import all_meta, all_records, connect, count_records, get_meta, query_earthquakes, seed_bootstrap_if_empty, set_meta, upsert_earthquakes
+from app.services.cache import all_meta, all_records, connect, count_records, feed_meta_key, query_earthquakes, seed_bootstrap_if_empty, set_meta, upsert_earthquakes
 from app.services.usgs_client import fetch_feed
 from app.utils import bool_arg, parse_time_ms, safe_float, safe_int
 bp=Blueprint('main',__name__)
 
 def feed_url(name):
     feeds=current_app.config['FEEDS']; return current_app.config['USGS_FEED_URL'] if name=='custom' else feeds.get(name, feeds.get(current_app.config['DEFAULT_FEED_WINDOW'], current_app.config['USGS_FEED_URL']))
+def feed_meta_value(meta, key, feed, default=''):
+    scoped=feed_meta_key(key,feed)
+    if scoped in meta: return meta[scoped]
+    return meta.get(key, default) if meta.get('last_refresh_source') == feed else default
+
 def refresh_if_needed(feed='day', force=False):
-    db=current_app.config['SQLITE_DB_PATH']; ttl=current_app.config['CACHE_TTL_SECONDS']; last=int(get_meta(db,'last_successful_refresh_epoch','0') or 0)
+    db=current_app.config['SQLITE_DB_PATH']; ttl=current_app.config['CACHE_TTL_SECONDS']; meta=all_meta(db)
+    last=int(feed_meta_value(meta,'last_successful_refresh_epoch',feed,'0') or 0)
     if not force and int(time.time())-last <= ttl: return 'cache'
     try:
         rows=fetch_feed(feed_url(feed), current_app.config['REQUEST_TIMEOUT_SECONDS']); n=upsert_earthquakes(db,rows,feed,False)
         return f'live:{n}'
     except Exception as exc:
         current_app.logger.warning('USGS refresh failed: %s', exc)
-        with connect(db) as c: set_meta(c,'last_refresh_error',str(exc)[:300]); set_meta(c,'last_refresh_source','fallback_cache'); c.commit()
+        with connect(db) as c:
+            set_meta(c,'last_refresh_error',str(exc)[:300]); set_meta(c,'last_refresh_source','fallback_cache')
+            set_meta(c,feed_meta_key('last_refresh_error',feed),str(exc)[:300]); set_meta(c,feed_meta_key('last_refresh_source',feed),'fallback_cache')
+            c.commit()
         if count_records(db)==0: seed_bootstrap_if_empty(db, current_app.config['ENABLE_BOOTSTRAP_DATA']); return 'bootstrap_fallback'
         return 'fallback_cache'
 def filters_from_args():
@@ -42,13 +51,16 @@ def api_earthquakes():
     limit=safe_int(request.args.get('limit'),500,1,current_app.config['MAX_API_LIMIT']); sort=request.args.get('sort','time_desc')
     filt=filters_from_args(); rows=query_earthquakes(current_app.config['SQLITE_DB_PATH'],filt,limit,sort); meta=all_meta(current_app.config['SQLITE_DB_PATH'])
     warnings=[]
-    if 'fallback' in refresh or meta.get('last_refresh_source') in {'bootstrap_demo','fallback_cache'}: warnings.append('Using cached or bootstrap data because live USGS refresh was unavailable or skipped.')
-    return jsonify({'meta':{'source':meta.get('last_refresh_source','cache'),'refresh_result':refresh,'last_refresh_epoch':int(meta.get('last_successful_refresh_epoch','0') or 0),'count':len(rows),'available_feeds':list(current_app.config['FEEDS'].keys())},'filters':filt,'count':len(rows),'source':meta.get('last_refresh_source','cache'),'warnings':warnings,'data':rows})
+    source=feed_meta_value(meta,'last_refresh_source',feed,'cache')
+    last_epoch=int(feed_meta_value(meta,'last_successful_refresh_epoch',feed,'0') or 0)
+    if 'fallback' in refresh or source in {'bootstrap_demo','fallback_cache'}: warnings.append('Using cached or bootstrap data because live USGS refresh was unavailable or skipped.')
+    return jsonify({'meta':{'source':source,'refresh_result':refresh,'last_refresh_epoch':last_epoch,'count':len(rows),'available_feeds':list(current_app.config['FEEDS'].keys())},'filters':filt,'count':len(rows),'source':source,'warnings':warnings,'data':rows})
 @bp.route('/api/summary')
 def api_summary():
     refresh_if_needed(request.args.get('feed', current_app.config['DEFAULT_FEED_WINDOW']), False)
     rows=query_earthquakes(current_app.config['SQLITE_DB_PATH'],filters_from_args(),current_app.config['MAX_API_LIMIT'],'time_desc')
-    return jsonify({'summary':analytics.summarize(rows),'count':len(rows),'source':all_meta(current_app.config['SQLITE_DB_PATH']).get('last_refresh_source','cache')})
+    feed=request.args.get('feed', current_app.config['DEFAULT_FEED_WINDOW']); meta=all_meta(current_app.config['SQLITE_DB_PATH'])
+    return jsonify({'summary':analytics.summarize(rows),'count':len(rows),'source':feed_meta_value(meta,'last_refresh_source',feed,'cache')})
 @bp.route('/api/regions')
 def api_regions(): return jsonify({'regions':analytics.regions(query_earthquakes(current_app.config['SQLITE_DB_PATH'],filters_from_args(),current_app.config['MAX_API_LIMIT'],'time_desc'))})
 @bp.route('/api/timeseries')
